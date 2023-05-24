@@ -392,7 +392,7 @@
 			// UIHN-26461, this previous logic didn't allow the axis to ever shrink, so swapping between rotated/not rotated labels after the chart resized
 			// resulted in the x axis label staying too large
 			// positions[level] = mathMax(positions[level] || 0, position + 10 + Math.abs(userXY));
-			positions[level] = position + 10 + Math.abs(userXY);
+			positions[level] = position + 15 + Math.abs(userXY);
 		}
 
 		if (level === true) {
@@ -492,6 +492,8 @@
 					hasOptions = userAttr && userAttr[depth - 1],
 					mergedAttrs = hasOptions ? merge(attr, userAttr[depth - 1]) : attr,
 					mergedCSS = hasOptions && userAttr[depth - 1].style ? merge(css, userAttr[depth - 1].style) : css;
+					// UIHN-42788 - We add label specific CSS later, so if this isn't a new object for each label the properties carry over across labels
+					mergedCSS = deepClone(mergedCSS);
 				// #63: style is passed in CSS and not as an attribute
 				delete mergedAttrs.style;
 
@@ -526,7 +528,7 @@
 				var maxSlotSize = axis.horiz ? maxPos.x - minPos.x : maxPos.y - minPos.y;
 				var groupedOptions = axis.options.labels.groupedOptions[depth - 1];
 				var overflowType = (groupedOptions && groupedOptions.overflowType) ? groupedOptions.overflowType : 'Auto';
-				applyOverflowType(tick.label, maxSlotSize - 10, overflowType); // - 10 magic number to ensure a bit of padding between label and grid lines
+				applyOverflowType(tick.label, maxSlotSize, overflowType);
 			}
 			// set level size, #93
 			if (tick && tick.label) {
