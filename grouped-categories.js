@@ -493,7 +493,7 @@
 					mergedAttrs = hasOptions ? merge(attr, userAttr[depth - 1]) : attr,
 					mergedCSS = hasOptions && userAttr[depth - 1].style ? merge(css, userAttr[depth - 1].style) : css;
 					// UIHN-42788 - We add label specific CSS later, so if this isn't a new object for each label the properties carry over across labels
-					mergedCSS = deepClone(mergedCSS);
+					mergedCSS = Object.assign({}, mergedCSS);
 				// #63: style is passed in CSS and not as an attribute
 				delete mergedAttrs.style;
 
