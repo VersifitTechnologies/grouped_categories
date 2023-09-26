@@ -417,10 +417,17 @@
 				tick.label.textPxLength = currentWidth;
 			}
 		}
-
 		// create elements for parent categories
 		if (axis.isGrouped && axis.options.labels.enabled) {
-			tick.addGroupedLabels(category);
+			// Reset our tracking of rendered group ticks if we see "isFirst=true", since that should only be true on the first tick of an instance of rendering all ticks
+			if (tick.isFirst) {
+				axis.renderedGroupTicks = new Set();
+			}
+			if (!axis.renderedGroupTicks.has(category.parent)) {
+				// Tracking this let's us guard against addGroupedLabels rendering the same parent label many times
+				axis.renderedGroupTicks.add(category.parent);
+				tick.addGroupedLabels(category);
+			}
 		}
 		return true;
 	};
@@ -593,7 +600,6 @@
 					} else if (!horiz && axis.top <= maxPos.y) {
 						addGridPart(grid, [xy.x, maxPos.y + reverseCrisp, size + lvlSize, maxPos.y + reverseCrisp], tickWidth);
 					}
-
 					axis.renderedGroupGridLines.add(group);
 				}
 			}
@@ -637,14 +643,20 @@
 		// UIHN-21845, UIHN-26461, this function as a whole was added to handle overflow on grouped categories better.
 		// Previously only wrapped which didn't always fix overflow issues, but now should support wrapping, rotating, and ellipsis
 
+		let currentTextWidth;
 		// Track the full (unwrapped) width of the label
 		if (typeof(label.fullWidth) === 'undefined') {
 			label.css({width: null});
 			label.fullWidth = label.getBBox().width;
+			currentTextWidth = label.fullWidth;
+		} else {
+			currentTextWidth = label.isRotated ? label.getBBox().height : label.getBBox().width;
 		}
-		var currentTextWidth = label.isRotated ? label.getBBox().height : label.getBBox().width; // TODO wrong
+		// Have to track the max width between applications, since it seems to change sometimes and invalidate previous values we cached, UIHN-46689
+		const maxWidthChanged = typeof(label.prevMaxWidth) !== 'undefined' && label.prevMaxWidth !== maxWidth;
+		label.prevMaxWidth = maxWidth;
 		// Track wrapped width/height on the label if we haven't yet (only in auto mode, since other modes don't wrap)
-		if(typeof(label.wrappedWidth) === 'undefined' && overflowType === 'Auto') {
+		if((typeof(label.wrappedWidth) === 'undefined' || maxWidthChanged) && overflowType === 'Auto') {
 			label.css({width: null});
 			label.css({width: maxWidth});
 			var wBbox = label.getBBox();
@@ -655,7 +667,7 @@
 		if (overflowType === 'Auto' || overflowType === 'Rotate') {
 			var currentWidthOverflows = currentTextWidth > maxWidth;
 			// We rotate if Auto is on and both regular width and wrapped width overflow, OR if Rotate is on and current width overflows
-			rotate = overflowType === 'Auto' ?  (currentWidthOverflows && label.wrappedWidth > maxWidth) : currentWidthOverflows;
+			rotate = overflowType === 'Auto' ? (currentWidthOverflows && label.wrappedWidth > maxWidth) : currentWidthOverflows;
 		}
 		label.isRotated = rotate;
 		if (rotate) {
@@ -665,7 +677,7 @@
 			label.css({width: label.fullWidth + 10}); // +10 is a magic number otherwise last word wraps still
 			// Apply wrapping to the rotated text if the wrapped texts height fits in the available width
 			// TODO should consider another property (e.g. maxRotatedWidth) that can be used to limit how tall some rotated labels get
-			/*if (group.label.wrappedHeight < maxRotatedWidth) {
+			/*if (label.wrappedHeight < maxRotatedWidth) {
 				label.css({width: maxRotatedWidth});
 			}*/
 		} else {
@@ -673,7 +685,6 @@
 			// Reset width on the labels to the max available width, so either wrapping or ellipsis can handle overflow
 			// this is required in addition to setting the textPxLength on the child labels in the addLabel function
 			var css = {width: maxWidth};
-			// delete
 			if (overflowType === 'Ellipsis' || overflowType === 'Auto' && label.wrappedWidth > maxWidth) {
 				css.textOverflow = 'ellipsis';
 			}
