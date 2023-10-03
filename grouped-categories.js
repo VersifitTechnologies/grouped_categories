@@ -349,10 +349,7 @@
 		}
 
 		if (position !== UNDEFINED) {
-			// UIHN-26461, this previous logic didn't allow the axis to ever shrink, so swapping between rotated/not rotated labels after the chart resized
-			// resulted in the x axis label staying too large
-			// positions[level] = mathMax(positions[level] || 0, position + 10 + Math.abs(userXY));
-			positions[level] = position + 15 + Math.abs(userXY);
+			positions[level] = mathMax(positions[level] || 0, position + 10 + Math.abs(userXY));
 		}
 
 		if (level === true) {
@@ -420,8 +417,12 @@
 		// create elements for parent categories
 		if (axis.isGrouped && axis.options.labels.enabled) {
 			// Reset our tracking of rendered group ticks if we see "isFirst=true", since that should only be true on the first tick of an instance of rendering all ticks
+			// Also reset label sizes, otherwise they start from the previous state and never shrink
 			if (tick.isFirst) {
 				axis.renderedGroupTicks = new Set();
+				axis.labelsSizes = [];
+				axis.depthIsRotated = [];
+				axis.labelsNotRotatedByDepth = [];
 			}
 			if (!axis.renderedGroupTicks.has(category.parent)) {
 				// Tracking this let's us guard against addGroupedLabels rendering the same parent label many times
@@ -495,7 +496,25 @@
 				var maxSlotSize = axis.horiz ? maxPos.x - minPos.x : maxPos.y - minPos.y;
 				var groupedOptions = axis.options.labels.groupedOptions[depth - 1];
 				var overflowType = (groupedOptions && groupedOptions.overflowType) ? groupedOptions.overflowType : 'Auto';
-				applyOverflowType(tick.label, maxSlotSize, overflowType);
+				// // UIHN-49293, track if label was rotated, and pass in whether we want to force rotate the current label (i.e. if a label at a certain depth rotates, we want all labels to rotate to match how highcharts handles the base labels)
+				axis.depthIsRotated[depth] = applyOverflowType(tick.label, maxSlotSize, overflowType, axis.depthIsRotated[depth]);
+				// UIHN-49293, add any labels that aren't rotated to our tracker in case we have to rotate them later
+				if (!axis.depthIsRotated[depth]) {
+					if (!axis.labelsNotRotatedByDepth[depth]) {
+						axis.labelsNotRotatedByDepth[depth] = [];
+					}
+					axis.labelsNotRotatedByDepth[depth].push(tick.label);
+				}
+				// UIHN-49293, if the current label was rotated and we have labels in the same depth that we already processed but didn't rotate then reapply overflow/group size to them now and force rotate
+				if(axis.depthIsRotated[depth] && typeof(axis.labelsNotRotatedByDepth[depth]) !== 'undefined') {
+					for (let labelIndex in axis.labelsNotRotatedByDepth[depth]) {
+						const lbl = axis.labelsNotRotatedByDepth[depth][labelIndex];
+						// We have to both force rotate and update the group size, just in case the newly rotated labels are longer than others
+						applyOverflowType(lbl, maxSlotSize, overflowType, axis.depthIsRotated[depth]);
+						axis.groupSize(depth, lbl.getBBox()[size]);
+					}
+					axis.labelsNotRotatedByDepth.splice(depth);
+				}
 			}
 			// set level size, #93
 			if (tick && tick.label) {
@@ -639,7 +658,7 @@
 	 * @param overflowType - What type of overflow should be applied to the label. Valid options are 'Auto', 'Rotate', and
 	 * 'Ellipsis'. Auto will first try wrapping labels to make them fit, then try rotating, and finally apply ellipsis as a last resort.
 	 */
-	function applyOverflowType(label, maxWidth, overflowType) {
+	function applyOverflowType(label, maxWidth, overflowType, forceRotate = false) {
 		// UIHN-21845, UIHN-26461, this function as a whole was added to handle overflow on grouped categories better.
 		// Previously only wrapped which didn't always fix overflow issues, but now should support wrapping, rotating, and ellipsis
 
@@ -657,6 +676,7 @@
 		label.prevMaxWidth = maxWidth;
 		// Track wrapped width/height on the label if we haven't yet (only in auto mode, since other modes don't wrap)
 		if((typeof(label.wrappedWidth) === 'undefined' || maxWidthChanged) && overflowType === 'Auto') {
+			label.attr({rotation: 0}); // Needed to prevent the label from rotating before we grab bbox and switching width/height on us
 			label.css({width: null});
 			label.css({width: maxWidth});
 			var wBbox = label.getBBox();
@@ -669,14 +689,14 @@
 			// We rotate if Auto is on and both regular width and wrapped width overflow, OR if Rotate is on and current width overflows
 			rotate = overflowType === 'Auto' ? (currentWidthOverflows && label.wrappedWidth > maxWidth) : currentWidthOverflows;
 		}
-		label.isRotated = rotate;
-		if (rotate) {
+		label.isRotated = rotate || forceRotate;
+		if (label.isRotated) {
 			label.attr({rotation: -90});
 			// Have to set width back to an actual value to "undo" any wrapping that may have happened before we rotated
 			label.css({width: null});
 			label.css({width: label.fullWidth + 10}); // +10 is a magic number otherwise last word wraps still
 			// Apply wrapping to the rotated text if the wrapped texts height fits in the available width
-			// TODO should consider another property (e.g. maxRotatedWidth) that can be used to limit how tall some rotated labels get
+			// TODO should consider another property (e.g. maxRotatedWidth) that can be used to limit how tall some rotated labels get, however would also have to apply some logic to better center the wrapped text
 			/*if (label.wrappedHeight < maxRotatedWidth) {
 				label.css({width: maxRotatedWidth});
 			}*/
@@ -692,6 +712,7 @@
 			label.css({width: null});
 			label.css(css);
 		}
+		return label.isRotated;
 	}
 	function fixOffset(tCat, isFirst) {
 		var ret = 0;
